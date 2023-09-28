@@ -15,7 +15,7 @@ class RoyalRoad:
 
         self.page = '?page='
 
-        self.search = [f'{searchItem}{self.page}{i}' for i in range(1, pageLimit + 1) for searchItem in search]
+        self.search = [f'{searchItem}{self.page}{i}' for i in range(1, pageLimit + 1) for searchItem in search] #Add page count to search
 
 
     def getURLs(self):
@@ -27,5 +27,5 @@ class RoyalRoad:
 
             urlList.append([self.website + a['href'] for [a] in [entry.find_all('a', href=True) for entry in soup.find_all('h2', class_='fiction-title')]])
 
-        return [urls for urlSet in urlList for urls in urlSet]
+        return [urls for urlSet in urlList for urls in urlSet] #Flatten list
 
