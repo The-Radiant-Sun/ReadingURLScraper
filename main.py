@@ -64,9 +64,11 @@ def scrapeURLs(urls, path, pause):
 
 def renameFiles(path):
     """Format files to only include the book name"""
+    print("Formatting scraped files")
     files = subprocess.run(["ls"], capture_output=True, text=True, cwd=path).stdout.split('\n')[:-1]  # Find all files in folder
     for file in files:
         subprocess.run(["mv", file, f"{'-'.join(file.split('-')[:-1])}.epub"], cwd=path)  # Remove all bar the book name
+        print(f"{'-'.join(file.split('-')[:-1])} formatted")
 
 
 if __name__ == '__main__':
