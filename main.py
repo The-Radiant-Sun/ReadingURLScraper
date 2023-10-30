@@ -1,25 +1,27 @@
 import threading
 import subprocess
+import pools
 from RoyalRoad import RoyalRoad
 
 folder = '/Users/finn/Documents/Books/Temporary'
+file = 'completed.txt'
 websites = [RoyalRoad]
+
+checkCompleted = True  # Checks if works are completed and notes them to not pull in future scrapes
 
 pageLimit = 5  # Number of pages deep in each website to pull from
 waitPeriod = 60  # Number of seconds to wait after each file pulled
 
-printPool = threading.Semaphore()  # Make only one thread able to use the pool at a time
-
-
-def cprint(sema, text):
-    """Ensures there is only one thread printing at a time"""
-    sema.acquire()
-    print(text)
-    sema.release()
-
 
 def main():
     """Retrieves the urls from the websites, then formats them"""
+
+    # Creates file to catch completed works if it does not exist
+    try:
+        open(file, mode='x')
+    except FileExistsError:
+        pass
+
     scrapeURLs(list(set(getURLs())), folder, waitPeriod)  # Remove duplicates through sets and start scraping
     renameFiles(folder)  # Remove unneeded aspects from files
 
@@ -31,7 +33,7 @@ def getURLs():
 
     print("\nBeginning scan")
     for website in websites:
-        thread = threading.Thread(target=scanWebsite, args=[website, urlList, printPool])  # Create thread for each website
+        thread = threading.Thread(target=scanWebsite, args=[website, urlList])  # Create thread for each website
         threads.append(thread)
         thread.start()
 
@@ -39,15 +41,17 @@ def getURLs():
         thread.join()
     print("Ending scan\n")
 
-    return [urls for urlSet in urlList for urls in urlSet]  # Flatten list
+    return unpack(urlList)  # Flatten list
 
 
-def scanWebsite(website, urlList, sema):
+def scanWebsite(website, urlList):
     """Activate website class functions to retrieve valid urls"""
-    website = website(pageLimit, sema)
-    cprint(sema, f"Started scan of {website.name}")
-    website.getURLs(urlList)  # Retrieve URLs
-    cprint(sema, f"Ended scan of {website.name}")
+    website = website(pageLimit)
+    websiteURLs = []
+    pools.cprint(f"Started scan of {website.name}")
+    website.getURLs(websiteURLs, checkCompleted)  # Retrieve URLs
+    urlList.append(websiteURLs)
+    pools.cprint(f"Ended scan of {website.name}")
 
 
 def scrapeURLs(urls, path, pause):
@@ -55,7 +59,7 @@ def scrapeURLs(urls, path, pause):
     print(f"Targeting folder at {path}")
     print(f"Beginning scraping of {len(urls)} urls\n")
     for url in urls:
-        print(f"{urls.index(url) + 1} of {len(urls)}: Started scrape of {url}")
+        print(f"{(urls.index(url) * 100) // len(urls)}% - {urls.index(url) + 1} of {len(urls)}: Started scrape of {url}")
         subprocess.run(["fanficfare", f"{url}"], cwd=path)  # Scrape url
         subprocess.run(["sleep", f"{pause}"])  # Pause to avoid mass requesting
         print(f"Ended scrape of {url}\n")
@@ -69,6 +73,18 @@ def renameFiles(path):
     for file in files:
         subprocess.run(["mv", file, f"{'-'.join(file.split('-')[:-1])}.epub"], cwd=path)  # Remove all bar the book name
         print(f"{'-'.join(file.split('-')[:-1])} formatted")
+
+
+def unpack(array):
+    """Flattens inputted list through recursion"""
+    repack = []
+    for item in array:
+        if type(item) == list:
+            for subItem in unpack(item):
+                repack.append(subItem)
+        else:
+            repack.append(item)
+    return repack
 
 
 if __name__ == '__main__':
