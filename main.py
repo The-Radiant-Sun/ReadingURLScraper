@@ -4,10 +4,10 @@ import pools
 from RoyalRoad import RoyalRoad
 
 folder = '/Users/finn/Documents/Books/Temporary'
-file = 'completed.txt'
+file = 'urlData.txt'
 websites = [RoyalRoad]
 
-checkCompleted = True  # Checks if works are completed and notes them to not pull in future scrapes
+checkUpdate = True  # Checks if works have updated and notes data to focus scrape
 
 pageLimit = 5  # Number of pages deep in each website to pull from
 waitPeriod = 60  # Number of seconds to wait after each file pulled
@@ -15,10 +15,8 @@ waitPeriod = 60  # Number of seconds to wait after each file pulled
 
 def main():
     """Retrieves the urls from the websites, then formats them"""
-
-    # Creates file to catch completed works if it does not exist
     try:
-        open(file, mode='x')
+        open(file, mode='x')  # Creates file to catch works that are not updated if it does not exist
     except FileExistsError:
         pass
 
@@ -31,27 +29,52 @@ def getURLs():
     threads = []
     urlList = []
 
+    with open("urlData.txt", mode="r+") as urlDataFile:
+        urlData = {}
+        if len(urlDataFile.readlines()) > 1:
+            urlData = {data[0]: data[1] for data in [item.split(' ') for item in urlDataFile.read().split('\n')]}
+        urlDataBackup = urlData
+        urlDataFile.close()
+
     print("\nBeginning scan")
     for website in websites:
-        thread = threading.Thread(target=scanWebsite, args=[website, urlList])  # Create thread for each website
+        thread = threading.Thread(target=scanWebsite, args=[website, urlList, urlData])  # Create thread for each website
         threads.append(thread)
         thread.start()
 
     for thread in threads:
         thread.join()
+
     print("Ending scan\n")
+
+    with open("urlData.txt", mode="w") as urlDataFile:
+        try:  # Update urlData except for errors, then revert to previous data
+            urlDataFile.write('\n'.join(f'{" ".join([urlEntry, str(urlData[urlEntry])])}' for urlEntry in urlData))
+        except Exception as Error:
+            print(f"{type(Error)}: {Error}")
+            print("Reverting Url Data to Recorded Backup")
+            urlDataFile.write('\n'.join(f'{" ".join([urlEntry, urlDataBackup[urlEntry]])}' for urlEntry in urlDataBackup))
+        urlDataFile.close()
 
     return unpack(urlList)  # Flatten list
 
 
-def scanWebsite(website, urlList):
+def scanWebsite(website, urlList, urlData):
     """Activate website class functions to retrieve valid urls"""
-    website = website(pageLimit)
+    website = website(pageLimit, urlData)
     websiteURLs = []
-    pools.cprint(f"Started scan of {website.name}")
-    website.getURLs(websiteURLs, checkCompleted)  # Retrieve URLs
+    pools.pPrint(f"Started scan of {website.name}")
+    website.getURLs(websiteURLs, checkUpdate)  # Retrieve URLs and update stored URL data if checking for updates
     urlList.append(websiteURLs)
-    pools.cprint(f"Ended scan of {website.name}")
+    pools.pPrint(f"Ended scan of {website.name}")
+
+    if checkUpdate:
+        pools.pToggle(True)
+        for key in website.urlData:
+            urlData[key] = website.urlData[key]
+        pools.pToggle(False)
+
+        pools.pPrint(f"Updated saved data from {website.name}")
 
 
 def scrapeURLs(urls, path, pause):
