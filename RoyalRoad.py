@@ -1,5 +1,4 @@
 import requests
-import threading
 import re
 import pools
 from bs4 import BeautifulSoup
@@ -21,26 +20,8 @@ class RoyalRoad:
 
         self.urlList = []
         self.urlData = urlData
-        self.urlDataDifferenceActions = []
 
         self.search = [f'{searchItem}{self.page}{i}' for searchItem in search for i in range(1, pageLimit + 1)]  # Add page count to search
-
-    def getURLs(self, websiteURLs, checkUpdate):
-        """Generate a thread and scan fiction urls for each selected page"""
-        threads = []
-
-        for fictionList in self.search:
-            thread = threading.Thread(target=self.scanURLs, args=[fictionList])  # Create thread for each page
-            threads.append(thread)
-            thread.start()
-
-        for thread in threads:
-            thread.join()
-
-        websiteURLs.append([urls for urlSet in self.urlList for urls in urlSet])  # Flatten list
-
-        if checkUpdate:
-            self.checkURLs(websiteURLs)
 
     def scanURLs(self, webpage):
         """Retrieve valid fiction urls within the provided webpage"""
@@ -58,43 +39,47 @@ class RoyalRoad:
         for n, urlSet in enumerate(urlList):
             for c, url in enumerate(urlSet):
                 content = "/".join(url.split("/")[:-1])  # Remove unnecessary url components
-                percentage = f"{(n * 100) // len(urlList) + (c * 100) // (len(urlSet) * len(urlList))}%"
+                ratio = f"{self.name} at {(n * 100) // len(urlList) + (c * 100) // (len(urlSet) * len(urlList))}% - {n * len (urlList) + c}/{len(urlList) + len(urlSet)} - "
 
-                scrapedCompletionStatus = BeautifulSoup(requests.get(url).content, 'html.parser').find('span', class_='label label-default label-sm bg-blue-hoki', string=re.compile("COMPLETED")) is not None
-                scrapedChapterCount = int(BeautifulSoup(requests.get(url).content, 'html.parser').find('span', class_='label label-default pull-right').getText().split(" ")[0])
+                urlInfo = f"\n{ratio} Checking {url}"
 
-                pools.pPrint(f"{percentage} Checking {url}")
+                loadedURL = BeautifulSoup(requests.get(url).content, 'html.parser')
+
+                scrapedCompletionStatus = loadedURL.find('span', class_='label label-default label-sm bg-blue-hoki', string=re.compile("COMPLETED")) is not None
+                scrapedChapterCount = int(loadedURL.find('span', class_='label label-default pull-right').getText().split(" ")[0])
 
                 try:  # Try to get saved data on the specific url
-                    pools.pPrint(" - Found within saved data")
+                    data = self.urlData[content]
+                    urlInfo += "\n - Found within saved data"
 
-                    if self.urlData[content] == "Completed":  # Remove if already completed
-                        pools.pPrint(" - Url is recorded as completed\n - Removing url from list due to being already completed")
+                    if data == "Completed":  # Remove if already completed
+                        urlInfo += "\n - Url is recorded as completed\n - Removing url from list due to being already completed"
                         urlList[n].remove(url)
 
                     elif scrapedCompletionStatus:
-                        pools.pPrint(" - Changing url status to completed")
+                        urlInfo += "\n - Changing url status to completed"
                         self.urlData[content] = "Completed"
 
                     else:  # Check progress by chapter count comparison, remove if no positive progress from last recorded value
-                        pools.pPrint(f" - Url is recorded at {self.urlData[content]} chapters, compared to {scrapedChapterCount} chapters online")
+                        urlInfo += f"\n - Url is recorded at {data} chapters, compared to {scrapedChapterCount} chapters online"
 
-                        if int(self.urlData[content]) < scrapedChapterCount:
-                            pools.pPrint(" - Sending new chapter count to be saved")
+                        if int(data) < scrapedChapterCount:
+                            urlInfo += "\n - Sending new chapter count to be saved"
                             self.urlData[content] = scrapedChapterCount
                         else:
-                            pools.pPrint(f" - Removing url from list due to no positive progress")
+                            urlInfo += f"\n - Removing url from list due to no positive progress"
                             urlList[n].remove(url)
 
                 except Exception is ValueError or KeyError:  # If there is no saved data, note data to be saved
                     if content not in self.urlData:
-                        pools.pPrint(" - Noting url data to be saved")
+                        urlInfo += "\n - Noting url data to be saved"
                         if scrapedCompletionStatus:
-                            pools.pPrint(f" - Url is noted as completed")  # Note if completed
+                            urlInfo += f"\n - Url is noted as completed"  # Note if completed
                             self.urlData[content] = "Completed"
                         else:
-                            scrapedChapterCount = int(BeautifulSoup(requests.get(url).content, 'html.parser').find('span', class_='label label-default pull-right').getText().split(" ")[0])
-                            pools.pPrint(f" - Url is noted as {scrapedChapterCount} chapters long")  # Note chapter count
+                            urlInfo += f"\n - Url is noted as {scrapedChapterCount} chapters long"  # Note chapter count
                             self.urlData[content] = scrapedChapterCount
                     else:
-                        pools.pPrint(f" - Removing url to be rescanned due to error")
+                        urlInfo += f"\n - Removing url to be rescanned due to error"
+
+                pools.pPrint(urlInfo)
