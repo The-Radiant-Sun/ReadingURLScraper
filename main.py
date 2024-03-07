@@ -1,16 +1,13 @@
 import threading
 import subprocess
 import pools
-from RoyalRoad import RoyalRoad
-from SpaceBattles import SpaceBattles
+import WebsiteList
 
-folder = '/Users/finn/Documents/Books/Temporary'
-dataFile = 'urlData.txt'
+folder = '/Users/finn/Documents/Books/Temporary'  # Path to folder where scraped books will be downloaded
+recordsFileName = 'urlData.txt'  # Name of file for record-keeping to allow checks for if works have updated
+bufferFileName = 'urlList.txt'  # Name of a file for record-keeping to show urls to be downloaded from a bulk scrape
 
-websites = [
-    RoyalRoad,
-    SpaceBattles
-]
+websites = WebsiteList.websites
 
 checkUpdate = True  # Checks if works have updated and notes data to focus scrape
 
@@ -21,11 +18,16 @@ waitPeriod = 60  # Number of seconds to wait after each file pulled
 def main():
     """Retrieves the urls from the websites, then formats them"""
     try:
-        open(dataFile, mode='x')  # Creates file to catch works that are not updated if it does not exist
+        open(recordsFileName, mode='x').close()  # Creates file to catch works that are not updated if it does not exist
+        open(bufferFileName, mode='x').close()  # Creates file to store urls not yet converted to epubs after scrape
     except FileExistsError:
         pass
 
-    scrapeURLs(list(set(getURLs())), folder, waitPeriod)  # Remove duplicates through sets and start scraping
+    with open(bufferFileName, mode="r") as bufferFile:
+        bufferData = bufferFile.read().split('\n')
+
+    scrapeURLs(getURLs() if bufferData == [''] else bufferData, folder, waitPeriod)  # Remove duplicates through sets and start scraping
+
     renameFiles(folder)  # Remove unneeded aspects from files
 
 
@@ -34,11 +36,11 @@ def getURLs():
     threads = []
     urlList = []
 
-    with open("urlData.txt", mode="r+") as urlDataFile:
-        fileData = urlDataFile.read()
+    with open(recordsFileName, mode="r+") as recordsFile:
+        fileData = recordsFile.read().split('\n')
         urlData = {}
-        if fileData.count('\n') > 1:
-            urlData = {data[0]: data[1] for data in [item.split(' ') for item in fileData.split('\n')]}
+        if len(fileData) > 1:
+            urlData = {data[0]: data[1] for data in [item.split(' ') for item in fileData]}
 
     print("\nBeginning scan")
     for website in websites:
@@ -51,16 +53,23 @@ def getURLs():
 
     print("Ending scan\n")
 
-    with open("urlData.txt", mode="w") as urlDataFile:
+    urlList = list(set(unpack(urlList)))  # Flatten list and remove duplicates
+
+    with open(bufferFileName, mode="w") as urlBufferFile:
+        try:
+            urlBufferFile.write('\n'.join(urlList))
+        except Exception as Error:
+            print(Error)
+
+    with open(recordsFileName, mode="w") as recordsFile:
         try:  # Update urlData except for in the event of errors which will revert it to previous data
-            urlDataFile.write('\n'.join(f'{" ".join([urlEntry, str(urlData[urlEntry])])}' for urlEntry in urlData))
+            recordsFile.write('\n'.join(f'{" ".join([urlEntry, str(urlData[urlEntry])])}' for urlEntry in urlData))
         except Exception as Error:
             print(f"{type(Error)}: {Error}")
             print("Reverting Url Data to Recorded Backup")
-            urlDataFile.write(fileData)
-        urlDataFile.close()
+            recordsFile.write('\n'.join(fileData))
 
-    return unpack(urlList)  # Flatten list
+    return urlList
 
 
 def scanWebsite(website, urlList, urlData):
@@ -70,7 +79,7 @@ def scanWebsite(website, urlList, urlData):
     pools.pPrint(f"\nStarted scan of {website.name}")
     getWebsiteURLs(website, websiteURLs)  # Retrieve URLs and update stored URL data if checking for updates
     urlList.append(websiteURLs)
-    pools.pPrint(f"Ended scan of {website.name}")
+    pools.pPrint(f"\nEnded scan of {website.name}")
 
     if checkUpdate:
         pools.pToggle(True)
@@ -78,7 +87,7 @@ def scanWebsite(website, urlList, urlData):
             urlData[key] = website.urlData[key]
         pools.pToggle(False)
 
-        pools.pPrint(f"Updated saved data from {website.name}")
+        pools.pPrint(f"\nUpdated saved data from {website.name}")
 
 
 def scrapeURLs(urls, path, pause):
@@ -86,11 +95,22 @@ def scrapeURLs(urls, path, pause):
     print(f"Targeting folder at {path}")
     print(f"Beginning scraping of {len(urls)} urls\n")
     for url in urls:
-        print(f"{(urls.index(url) * 100) // len(urls)}% - {urls.index(url) + 1} of {len(urls)}: Started scrape of {url}")
+        percentage = (urls.index(url) * 100) // len(urls)
+        print(f"{percentage}% - {urls.index(url) + 1} of {len(urls)}: Started scrape of {url}")
         subprocess.run(["fanficfare", f"{url}"], cwd=path)  # Scrape url
         subprocess.run(["sleep", f"{pause}"])  # Pause to avoid mass requesting
-        print(f" - Ended scrape of {url}\n")
+        print(f"{len(str(percentage)) * ' '} - Ended scrape of {url}\n")
+
+        with open(bufferFileName, mode="r+") as urlBufferFile:
+            urlBufferData = urlBufferFile.read().split('\n')
+            urlBufferFile.seek(0)
+            if len(urlBufferData) > 1:
+                urlBufferFile.write('\n'.join(urlBufferData[1:]))
+            urlBufferFile.truncate()
+
     print(f"Ended scraping\n")
+
+    open(bufferFileName, mode="w").close()
 
 
 def getWebsiteURLs(website, websiteURLs):
